@@ -1,5 +1,0 @@
-docker run -d --name mainnet-sync `
-    -p 31401:8000 `
-    -v "C:\Users\admin\AppData\Roaming\Pi Network\docker_volumes\mainnet_sync:/opt/stellar" `
-    -e POSTGRES_PASSWORD="stellarpassword" `
-    stellar/quickstart --pubnet
