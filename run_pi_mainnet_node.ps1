@@ -1,59 +1,56 @@
-# run_stellar_pi.ps1
-# Script untuk menjalankan Stellar Pi Network Quickstart di Windows menggunakan Docker
+# -----------------------------
+# run-mainnet.ps1
+# -----------------------------
+# PowerShell script to run Stellar Quickstart Mainnet ready for transactions
+# -----------------------------
 
-# ============================
-# CONFIGURASI
-# ============================
-$containerName = "pi-node"
-$imageName = "stellar/quickstart:latest"
-$networkPassphrase = "Pi Network"
-$portHorizon = 31401
+# 1️⃣ Tentukan folder lokal untuk konfigurasi Stellar
+$localDir = "C:/Users/admin/stellar-config"
 
-# Buat direktori config lokal
-$localDir = "$PSScriptRoot\stellar_data"
-if (!(Test-Path $localDir)) {
-    New-Item -ItemType Directory -Path $localDir
+if (-Not (Test-Path $localDir)) {
+    Write-Host "Membuat folder konfigurasi: $localDir"
+    New-Item -ItemType Directory -Path $localDir | Out-Null
 }
 
-# ============================
-# File konfigurasi stellar-core.cfg
-# ============================
-$coreCfgPath = "$localDir\stellar-core.cfg"
-$coreCfgContent = @"
-# Stellar Pi Network core config
-NETWORK_PASSPHRASE="$networkPassphrase"
-NODE_SEED="SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6"  # Ganti dengan seed node kamu
-RUN_STANDALONE=false
-HTTP_PORT=11626
-PUBLIC_HTTP_PORT=true
-ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING=false
-DATABASE="postgresql://stellar:stellar@localhost:5432/stellar"
-"@
+# 2️⃣ Tentukan password PostgreSQL
+$pgPassword = "stellar123"
 
-# Simpan file tanpa BOM
-$coreCfgContent | Out-File -FilePath $coreCfgPath -Encoding ascii
-
-# ============================
-# Jalankan container
-# ============================
-# Hapus container lama jika ada
-if (docker ps -a --format '{{.Names}}' | Select-String $containerName) {
-    Write-Host "Menghapus container lama $containerName..."
-    docker rm -f $containerName
+# 3️⃣ Hapus container lama kalau ada
+if (docker ps -a --format "{{.Names}}" | Select-String "mainnet-node") {
+    Write-Host "Menghapus container lama mainnet-node..."
+    docker rm -f mainnet-node | Out-Null
 }
 
-# Run container Stellar Quickstart
-Write-Host "Menjalankan Stellar Pi Network container..."
-docker run -d `
-    --name $containerName `
-    -p $portHorizon:8000 `
-    -v "$localDir:/opt/stellar/config" `
-    -e "NETWORK_PASSPHRASE=$networkPassphrase" `
-    -e "NODE_SEED=SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6" `
-    $imageName
+# 4️⃣ Jalankan Stellar Quickstart mainnet
+Write-Host "Menjalankan Stellar Quickstart mainnet container..."
+docker run -d --name mainnet-node `
+    -p 31401:8000 `
+    -v "${localDir}:/opt/stellar/config" `
+    -e "NETWORK=pubnet" `
+    -e "POSTGRES_PASSWORD=${pgPassword}" `
+    stellar/quickstart:latest
 
-# ============================
-# Tampilkan logs
-# ============================
-Write-Host "Menunggu container startup dan menampilkan log..."
-docker logs -f $containerName
+# 5️⃣ Tunggu hingga Horizon siap
+Write-Host "Menunggu Horizon siap dan sinkron dengan ledger mainnet..."
+while ($true) {
+    Start-Sleep -Seconds 15
+    try {
+        $status = Invoke-RestMethod -Uri "http://localhost:31401" -Method Get
+        if ($status._links) {
+            Write-Host "Horizon siap! Endpoint JSON siap digunakan."
+            break
+        }
+    } catch {
+        Write-Host "Menunggu Horizon... (ledger belum sinkron)"
+    }
+}
+
+# 6️⃣ Informasi akses
+Write-Host "`n✅ Container dijalankan dan siap untuk transaksi!"
+Write-Host "Horizon API: http://localhost:31401"
+Write-Host "Folder konfigurasi: $localDir"
+Write-Host "PostgreSQL password: $pgPassword"
+
+# 7️⃣ Contoh: tampilkan JSON status ledger
+Write-Host "`nContoh status ledger terbaru dari Horizon:"
+Invoke-RestMethod -Uri "http://localhost:31401" -Method Get | ConvertTo-Json -Depth 5
