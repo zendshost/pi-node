@@ -1,70 +1,52 @@
-# =======================================================
-# Script: run_pi_mainnet_node.ps1
-# Tujuan: Menjalankan node Pi Network Mainnet siap transaksi
-# Port Horizon: 31401
-# =======================================================
+# Path project
+$ProjectPath = "C:\Users\admin\stellar-pi"
+$configPath = Join-Path $ProjectPath "config"
+$cfgFile = Join-Path $configPath "stellar-core.cfg"
 
-$ErrorActionPreference = "Stop"
-
-# Konfigurasi utama
-$NODE_NAME = "pi-mainnet"
-$PORT_HORIZON = 31401
-$PORT_CORE = 11626
-$DATA_DIR = "C:\Users\admin\AppData\Roaming\PiNetwork\mainnet-data"
-$POSTGRES_PASSWORD = "stellar"
-$NETWORK_PASSPHRASE = "Pi Network"
-$HISTORY_URL = "http://4.194.35.14:31403"   # History archive Pi Mainnet
-
-Write-Host "`n🚀 Menjalankan Pi Network Mainnet Node (Siap Transaksi)" -ForegroundColor Cyan
-
-# 1️⃣ Buat folder data
-if (-Not (Test-Path $DATA_DIR)) {
-    New-Item -ItemType Directory -Force -Path $DATA_DIR | Out-Null
+# Buat folder project & config
+if (!(Test-Path $configPath)) {
+    Write-Host "Creating project folders..."
+    New-Item -ItemType Directory -Path $configPath -Force
 }
 
-# 2️⃣ Tarik image Stellar Quickstart
-Write-Host "`n📦 Mengunduh image stellar/quickstart:latest..."
-docker pull stellar/quickstart:latest
+# Generate stellar-core.cfg otomatis
+Write-Host "Generating stellar-core.cfg for Pi Network..."
+$cfgContent = @"
+# Stellar Pi Network core config
+NETWORK_PASSPHRASE="Pi Network"
+NODE_SEED="SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6"
+RUN_STANDALONE=false
+LEDGER_PROTOCOL=19
+DATABASE="postgresql://stellar:stellar@postgres/stellar"
+HISTORY="http://4.194.35.14:31403"
+CATCHUP_COMPLETE=true
+"@
 
-# 3️⃣ Hentikan container lama jika ada
-if ($(docker ps -a -q -f name=$NODE_NAME)) {
-    Write-Host "`n🧹 Menghapus container lama..."
-    docker stop $NODE_NAME | Out-Null
-    docker rm $NODE_NAME | Out-Null
-}
+$cfgContent | Set-Content -Path $cfgFile -Encoding UTF8
 
-# 4️⃣ Jalankan container dengan konfigurasi Pi Network
-Write-Host "`n🚀 Menjalankan container $NODE_NAME..."
-docker run -d --name $NODE_NAME `
-  -e NETWORK="$NETWORK_PASSPHRASE" `
-  -e DATABASE_PASSWORD="$POSTGRES_PASSWORD" `
-  -e ENABLE_CORE="true" `
-  -e ENABLE_HORIZON="true" `
-  -e HISTORY_ARCHIVE_URLS="$HISTORY_URL" `
-  -p ${PORT_HORIZON}:8000 `
-  -p ${PORT_CORE}:11626 `
-  -v "${DATA_DIR}:/opt/stellar" `
-  stellar/quickstart:latest
+# Buat Dockerfile otomatis
+$dockerFile = Join-Path $ProjectPath "Dockerfile"
+Write-Host "Generating Dockerfile..."
+$dockerContent = @"
+FROM stellar/quickstart:latest
 
-# 5️⃣ Tampilkan status container
-Write-Host "`n✅ Container sedang berjalan..."
-docker ps | findstr $NODE_NAME
+# Copy custom config
+COPY config/stellar-core.cfg /opt/stellar/core/etc/stellar-core.cfg
+"@
 
-Write-Host "`n🔍 Mengecek status sinkronisasi (Horizon)..."
-for ($i=1; $i -le 60; $i++) {
-    Start-Sleep -Seconds 30
-    try {
-        $res = Invoke-RestMethod -Uri "http://localhost:$PORT_HORIZON" -TimeoutSec 10
-        if ($res.core_latest_ledger -gt 0 -and $res.ingest_latest_ledger -gt 0) {
-            Write-Host "`n✅ Horizon sudah siap! Node sinkron sepenuhnya." -ForegroundColor Green
-            Write-Host "🌍 URL: http://localhost:$PORT_HORIZON" -ForegroundColor Cyan
-            break
-        }
-    } catch {}
-    Write-Host "⏳ Menunggu sinkronisasi... ($i/60)"
-}
+$dockerContent | Set-Content -Path $dockerFile -Encoding UTF8
 
-Write-Host "`n📜 Cek JSON hasil di browser:"
-Write-Host "👉 http://localhost:$PORT_HORIZON/" -ForegroundColor Yellow
-Write-Host "`n📡 Jika ingin lihat log real-time:"
-Write-Host "docker logs -f $NODE_NAME" -ForegroundColor Gray
+# Build Docker image
+Write-Host "Building Docker image 'stellar-pi'..."
+docker build -t stellar-pi $ProjectPath
+
+# Run Docker container
+Write-Host "Running Stellar Pi Network container..."
+docker run -d --name stellar-pi-node `
+  -p 31401:8000 `
+  -p 11625:11625 `
+  -p 11626:11626 `
+  stellar-pi
+
+Write-Host "✅ Stellar Pi Network container is running!"
+Write-Host "Horizon available at http://localhost:31401 (or http://<your-ip>:31401)"
