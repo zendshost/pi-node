@@ -1,52 +1,59 @@
-# Path project
-$ProjectPath = "C:\Users\admin\stellar-pi"
-$configPath = Join-Path $ProjectPath "config"
-$cfgFile = Join-Path $configPath "stellar-core.cfg"
+# run_stellar_pi.ps1
+# Script untuk menjalankan Stellar Pi Network Quickstart di Windows menggunakan Docker
 
-# Buat folder project & config
-if (!(Test-Path $configPath)) {
-    Write-Host "Creating project folders..."
-    New-Item -ItemType Directory -Path $configPath -Force
+# ============================
+# CONFIGURASI
+# ============================
+$containerName = "pi-node"
+$imageName = "stellar/quickstart:latest"
+$networkPassphrase = "Pi Network"
+$portHorizon = 31401
+
+# Buat direktori config lokal
+$localDir = "$PSScriptRoot\stellar_data"
+if (!(Test-Path $localDir)) {
+    New-Item -ItemType Directory -Path $localDir
 }
 
-# Generate stellar-core.cfg otomatis
-Write-Host "Generating stellar-core.cfg for Pi Network..."
-$cfgContent = @"
+# ============================
+# File konfigurasi stellar-core.cfg
+# ============================
+$coreCfgPath = "$localDir\stellar-core.cfg"
+$coreCfgContent = @"
 # Stellar Pi Network core config
-NETWORK_PASSPHRASE="Pi Network"
-NODE_SEED="SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6"
+NETWORK_PASSPHRASE="$networkPassphrase"
+NODE_SEED="SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6"  # Ganti dengan seed node kamu
 RUN_STANDALONE=false
-LEDGER_PROTOCOL=19
-DATABASE="postgresql://stellar:stellar@postgres/stellar"
-HISTORY="http://4.194.35.14:31403"
-CATCHUP_COMPLETE=true
+HTTP_PORT=11626
+PUBLIC_HTTP_PORT=true
+ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING=false
+DATABASE="postgresql://stellar:stellar@localhost:5432/stellar"
 "@
 
-$cfgContent | Set-Content -Path $cfgFile -Encoding UTF8
+# Simpan file tanpa BOM
+$coreCfgContent | Out-File -FilePath $coreCfgPath -Encoding ascii
 
-# Buat Dockerfile otomatis
-$dockerFile = Join-Path $ProjectPath "Dockerfile"
-Write-Host "Generating Dockerfile..."
-$dockerContent = @"
-FROM stellar/quickstart:latest
+# ============================
+# Jalankan container
+# ============================
+# Hapus container lama jika ada
+if (docker ps -a --format '{{.Names}}' | Select-String $containerName) {
+    Write-Host "Menghapus container lama $containerName..."
+    docker rm -f $containerName
+}
 
-# Copy custom config
-COPY config/stellar-core.cfg /opt/stellar/core/etc/stellar-core.cfg
-"@
+# Run container Stellar Quickstart
+Write-Host "Menjalankan Stellar Pi Network container..."
+docker run -d `
+    --name $containerName `
+    -p $portHorizon:8000 `
+    -v "$localDir:/opt/stellar/config" `
+    -e "NETWORK_PASSPHRASE=$networkPassphrase" `
+    -e "NODE_SEED=SB5MGOMXKRHDC5OSM26QEJBZWIWNWFSQRQARMPZG4XFSUPQQIWUXTVO6" `
+    $imageName
 
-$dockerContent | Set-Content -Path $dockerFile -Encoding UTF8
-
-# Build Docker image
-Write-Host "Building Docker image 'stellar-pi'..."
-docker build -t stellar-pi $ProjectPath
-
-# Run Docker container
-Write-Host "Running Stellar Pi Network container..."
-docker run -d --name stellar-pi-node `
-  -p 31401:8000 `
-  -p 11625:11625 `
-  -p 11626:11626 `
-  stellar-pi
-
-Write-Host "✅ Stellar Pi Network container is running!"
-Write-Host "Horizon available at http://localhost:31401 (or http://<your-ip>:31401)"
+# ============================
+# Tampilkan logs
+# ============================
+Write-Host "Menunggu container startup dan menampilkan log..."
+docker logs -f $containerName
